@@ -2,8 +2,6 @@ import click
 import rp
 import torch
 
-from pathlib import Path
-
 from torchvision.transforms.functional import gaussian_blur
 
 import source.stable_diffusion as sd
@@ -26,7 +24,7 @@ TODO: A temperature schedule
 @click.command()
 @click.option('--prompt',
     help='The prompt to use for binarization. Use {c} for the placeholder.',
-    default='A closeup photo of a {c}.'
+    default='A closeup black and white photo of a {c}.'
 )
 @click.option('--negative_prompt', help='The negative prompt to use for binarization.', default='')
 @click.option('--model_name', help='The model name to use for the stable diffusion.', default="CompVis/stable-diffusion-v1-4")
