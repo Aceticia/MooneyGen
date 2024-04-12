@@ -116,9 +116,9 @@ def train_images(prompt, negative_prompt, classes, recon_weight, weights, model_
     # Save the images
     for label, image in zip(classes, images):
         rp.save_image(rp.as_numpy_image(image().repeat(3, 1, 1)), output_dir + f'/{label}.png', False)
-    
+
     # Save the mooney image too
-    rp.save_image(rp.as_numpy_image(mooney_image().repeat(3, 1, 1)), output_dir + '/mooney.png', False)
+    rp.save_image(rp.as_numpy_image((mooney_image() > 0.5).float().repeat(3, 1, 1)), output_dir + '/mooney.png', False)
 
     # TODO: Save intermediate images
 
