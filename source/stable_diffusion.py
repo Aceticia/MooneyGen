@@ -135,19 +135,15 @@ class StableDiffusion(nn.Module):
     def predict_noise(self, noisy_latents, text_embeddings, timestep):
         return self.unet(noisy_latents, timestep, encoder_hidden_states=text_embeddings)['sample']
 
-    def binarize(self, mooney, imgs, temperature, max_intensity):
-        # mooney has shape [H, W] and imgs has shape [N, H, W]
+    def binarize(self, imgs, temperature, max_intensity):
+        # imgs has shape [N, H, W]
         # use gumbel softmax to pseudo-binarize the image so that it is differentiable
         binary = torch.exp(imgs * temperature) / (torch.exp(imgs * temperature) + torch.exp((max_intensity - imgs) * temperature))
-        
-        # unsqueeze mooney
-        mooney = mooney.repeat(imgs.shape[0], 1, 1)
 
-        # calculate the MSE loss between the mooney image and each one of the binary images
-        mse_loss = F.mse_loss(binary[:, 0], mooney)
-        
+        # Get all pairwise distances
+        mse_loss = torch.pdist(binary.view(-1, binary.shape[-1])).mean()
+
         return mse_loss
-
 
     def train_step(self, 
                    text_embeddings:torch.Tensor,

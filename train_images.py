@@ -17,9 +17,6 @@ update_presets = [
     lambda weight: dict(noise_coef=.1*weight, image_coef=-.005*weight, guidance_scale=50),
 ]
 
-"""
-TODO: A temperature schedule
-"""
 
 @click.command()
 @click.option('--prompt',
@@ -29,8 +26,10 @@ TODO: A temperature schedule
 @click.option('--negative_prompt', help='The negative prompt to use for binarization.', default='')
 @click.option('--model_name', help='The model name to use for the stable diffusion.', default="CompVis/stable-diffusion-v1-4")
 @click.option('--weights', multiple=True, help='The weights for each class. Defaults to equal weight.', default=[])
-@click.option('--temperature', help='The temperature to use for the soft binarization.', default=5.)
-@click.option('--recon_weight', help='The weight for weighing the reconstruction loss.', default=1.)
+@click.option('--temperature_start', help='Start temperature for binarization.', default=5.)
+@click.option('--temperature_end', help='End temperature for binarization.', default=1e5)
+@click.option('--temperature_target_ratio', help='The ratio of iterations to ramp up.', default=.1)
+@click.option('--recon_weight', help='The weight for weighing the reconstruction loss.', default=100.)
 @click.option('--num_features', help='The number of Fourier features to use for the learnable images.', default=128)
 @click.option('--hidden_dim', help='The number of hiddens to use for the mlp of learnable images.', default=256)
 @click.option('--image_size', help='Size of the generated image in terms of pixels.', default=128)
@@ -41,12 +40,15 @@ TODO: A temperature schedule
 @click.option('--max_step', help='Maximum number of steps for dream target loss', default=990)
 @click.option('--min_step', help='Minimum number of steps for dream target loss', default=10)
 @click.option('--loss_preset', help='Preset for dream target loss.', default=0)
-
-@click.option('--blurring_kernel_size', help='Kernel size for blurring grayscale images', default=3)
-@click.option('--blurring_kernel_sigma', help='Kernel sigma for blurring grayscale images', default=0.8)
-
+@click.option('--blurring_kernel_size', help='Kernel size for blurring grayscale images', default=5)
+@click.option('--blurring_kernel_sigma', help='Kernel sigma for blurring grayscale images', default=1.5)
 @click.argument('classes', nargs=-1)
-def train_images(prompt, negative_prompt, classes, recon_weight, weights, model_name, image_size, hidden_dim, temperature, num_features, use_gpu, output_dir, max_step, min_step, iters, loss_preset, blurring_kernel_size, blurring_kernel_sigma, use_mps):
+def train_images(
+        prompt, negative_prompt, classes, recon_weight, weights, model_name, image_size,
+        hidden_dim, num_features, use_gpu, output_dir, max_step, min_step, 
+        temperature_start, temperature_end, temperature_target_step,
+        iters, loss_preset, blurring_kernel_size, blurring_kernel_sigma, use_mps
+    ):
     if len(weights) != 0:
         assert len(weights) == len(classes), 'The number of weights must match the number of classes.'
     else:
@@ -77,19 +79,22 @@ def train_images(prompt, negative_prompt, classes, recon_weight, weights, model_
         height=image_size, width=image_size, num_features=num_features, hidden_dim=hidden_dim, num_channels=1
     ).to(device) for _ in range(len(classes))]
 
-    # This image is not spawned from the prompts
-    mooney_image = LearnableImageFourier(
-        height=image_size, width=image_size, num_features=num_features, hidden_dim=hidden_dim, num_channels=1
-    ).to(device)
-
-    params = chain(*[image.parameters() for image in images + [mooney_image]])
+    params = chain(*[image.parameters() for image in images])
     optim = torch.optim.SGD(params,lr=1e-4)
 
     s.max_step = max_step
     s.min_step = min_step
     preset = update_presets[loss_preset]
 
+    temps = torch.linspace(temperature_start, temperature_end, int(temperature_target_step * iters))
+
     for iter in trange(iters):
+        # Ramp up the temperature
+        if iter < int(temperature_target_step * iters):
+            curr_temp = temps[iter]
+        else:
+            curr_temp = temperature_end
+
         tensor_images = torch.stack([image() for image in images], dim=0)
         for image, label, weight in zip(tensor_images, labels, weights):
             s.train_step(
@@ -99,13 +104,12 @@ def train_images(prompt, negative_prompt, classes, recon_weight, weights, model_
             )
 
         recon_loss = s.binarize(
-            mooney_image(),
             gaussian_blur(
                 tensor_images,
                 kernel_size=blurring_kernel_size,
                 sigma=blurring_kernel_sigma
-            ),  # TODO: Get the shape right
-            temperature=temperature,
+            ),
+            temperature=curr_temp,
             max_intensity=1.
         ) * recon_weight
         recon_loss.backward()
@@ -118,9 +122,11 @@ def train_images(prompt, negative_prompt, classes, recon_weight, weights, model_
         rp.save_image(rp.as_numpy_image(image().repeat(3, 1, 1)), output_dir + f'/{label}.png', False)
 
     # Save the mooney image too
-    rp.save_image(rp.as_numpy_image((mooney_image() > 0.5).float().repeat(3, 1, 1)), output_dir + '/mooney.png', False)
-
-    # TODO: Save intermediate images
+    mooney_img = 0
+    for image in images:
+        mooney_img += image() / len(images)
+    mooney_img = (mooney_img > 0.5).float()
+    rp.save_image(rp.as_numpy_image(mooney_img.repeat(3, 1, 1)), output_dir + '/mooney.png', False)
 
 if __name__ == '__main__':
     train_images()
