@@ -46,7 +46,7 @@ update_presets = [
 def train_images(
         prompt, negative_prompt, classes, recon_weight, weights, model_name, image_size,
         hidden_dim, num_features, use_gpu, output_dir, max_step, min_step, 
-        temperature_start, temperature_end, temperature_target_step,
+        temperature_start, temperature_end, temperature_target_ratio,
         iters, loss_preset, blurring_kernel_size, blurring_kernel_sigma, use_mps
     ):
     if len(weights) != 0:
@@ -86,11 +86,11 @@ def train_images(
     s.min_step = min_step
     preset = update_presets[loss_preset]
 
-    temps = torch.linspace(temperature_start, temperature_end, int(temperature_target_step * iters))
+    temps = torch.linspace(temperature_start, temperature_end, int(temperature_target_ratio * iters))
 
     for iter in trange(iters):
         # Ramp up the temperature
-        if iter < int(temperature_target_step * iters):
+        if iter < int(temperature_target_ratio * iters):
             curr_temp = temps[iter]
         else:
             curr_temp = temperature_end
