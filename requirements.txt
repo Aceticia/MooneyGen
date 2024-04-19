@@ -14,3 +14,7 @@ transformers
 diffusers
 rp
 easydict
+click
+accelerate
+torch
+torchvision
